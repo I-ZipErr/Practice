@@ -1,0 +1,268 @@
+- name: masters_ports
+  hosts: masters
+  tasks:
+    - name: Openning ports -- 6443,2379:2380,10250,10259,10257 for master nodes purposes
+      become: true
+      ansible.builtin.iptables:
+        chain: INPUT
+        action: insert
+        rule_num: 1
+        protocol: tcp
+        destination_ports:
+          - "6443"
+          - "2379:2380"
+          - "10250"
+          - "10259"
+          - "10257"
+        jump: ACCEPT
+
+
+- name: workers_ports
+  hosts: masters
+  tasks:
+    - name: Openning ports -- 10250,30000:32767 for worker nodes purposes
+      become: true
+      ansible.builtin.iptables:
+        chain: INPUT
+        action: insert
+        rule_num: 1
+        protocol: tcp
+        destination_ports:
+          - "30000:32767"
+          - "10250"
+        jump: ACCEPT
+
+
+- name: install_k8s
+  hosts: all
+  tasks:
+  - name: Disable swap for current session
+    command: |
+     swapoff -a
+    become: true
+
+  - name: Disable swap permanently, persist reboots
+    become: true
+    ansible.builtin.replace:
+      path: /etc/fstab
+      regexp: '^(\s*)([^#\n]+\s+)(\w+\s+)swap(\s+.*)$'
+      replace: '#\1\2\3swap\4'
+      backup: yes
+
+  - name: Creating conf file for IP forwarding
+    become: true
+    ansible.builtin.copy:
+      dest: /etc/modules-load.d/k8s.conf
+      mode: '0777'
+      content: |
+        net.bridge.bridge-nf-call-iptables  = 1
+        net.bridge.bridge-nf-call-ip6tables = 1
+        net.ipv4.ip_forward                 = 1
+
+  # - name: Allow IP forwarding
+  #   become: true
+  #   ansible.builtin.blockinfile:
+  #     path: /etc/modules-load.d/k8s.conf
+  #     append_newline: true
+  #     prepend_newline: true
+  #     block: |
+  #       net.bridge.bridge-nf-call-iptables  = 1
+  #       net.bridge.bridge-nf-call-ip6tables = 1
+  #       net.ipv4.ip_forward                 = 1
+  
+  - name: Reload sytem module to apply IP forwarding changes
+    ansible.builtin.command: sysctl --system
+    become: true
+
+  - name: Installing some packages necessary for kubeadm and docker installation
+    become: true
+    ansible.builtin.apt:
+      update_cache: true
+      name:
+        - ca-certificates
+        - curl
+        - apt-transport-https
+
+  - name: Create directory with specific permissions
+    become: true
+    ansible.builtin.file:
+      path: /etc/apt/keyrings
+      state: directory
+      mode: '0755'
+
+  - name: Download keyring for docker, setting permissions
+    become: true
+    ansible.builtin.get_url:
+      url: https://download.docker.com/linux/ubuntu/gpg
+      dest: /etc/apt/keyrings/docker.asc
+      mode: '0755'
+
+  - name: Adding Docker repository
+    become: true
+    ansible.builtin.shell: |
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+      $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+      sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+  - name: Installing Docker engine components
+    become: true
+    ansible.builtin.apt:
+      update_cache: true
+      name:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+        - docker-buildx-plugin
+        - docker-compose-plugin
+  
+  - name: Download CRI-Dockerd for Kubernetes
+    become: true
+    ansible.builtin.shell: |
+      sudo curl -L https://github.com/Mirantis/cri-dockerd/releases/download/v0.3.14/cri-dockerd_0.3.14.3-0.ubuntu-jammy_amd64.deb -o /home/cri-dockerd_0.3.14.3-0.ubuntu-jammy_amd64.deb
+
+    # ansible.builtin.get_url:
+    #   url: https://github.com/Mirantis/cri-dockerd/releases/download/v0.3.14/cri-dockerd_0.3.14.3-0.ubuntu-jammy_amd64.deb
+    #   dest: /home/cri-dockerd_0.3.14.3-0.ubuntu-jammy_amd64.deb
+  
+  - name: Install CRI-Docker package
+    become: true
+    ansible.builtin.apt: 
+      deb: /home/cri-dockerd_0.3.14.3-0.ubuntu-jammy_amd64.deb
+
+  - name: Starting CRI-Docker, enabling it to run on startup
+    become: true
+    ansible.builtin.systemd_service:
+      name: cri-docker.socket
+      state: started
+      enabled: true
+
+  - name: Configuring Docker cgroup driver, making it to be systemd
+    become: true
+    ansible.builtin.shell: 
+      cmd: |
+        cat <<EOF | sudo tee /etc/docker/daemon.json
+        {
+        "exec-opts": ["native.cgroupdriver=systemd"]
+        }
+        EOF
+
+    # marker: "{mark}"
+    # marker_begin: " "
+    # marker_end: " "
+      # path: /etc/docker/daemon.json
+      # create: true
+      # block: |
+      # {
+      #   "exec-opts": ["native.cgroupdriver=systemd"]
+      # }
+
+
+  - name: Applying cgroup driver configuration
+    become: true
+    ansible.builtin.systemd_service:
+      name: docker
+      state: restarted
+      daemon_reload: true
+      enabled: true
+
+  - name: Getting Kubernetes 1.27 repository key
+    become: true
+    ansible.builtin.shell: |
+      curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.27/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+  - name: Adding Kubernetes 1.27 repository
+    become: true
+    ansible.builtin.apt_repository:
+      repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.27/deb/ /"
+      state: present
+      filename: kubernetes
+
+  - name: Installing Kubernetes bootstrap
+    become: true
+    ansible.builtin.apt:
+      update_cache: true
+      name:
+        - kubelet
+        - kubeadm
+        - kubectl
+
+  - name: Preventing kubelet from unexpected updates
+    become: true
+    ansible.builtin.dpkg_selections:
+      name: kubelet
+      selection: hold
+
+  - name: Preventing kubeadm from unexpected updates
+    become: true
+    ansible.builtin.dpkg_selections:
+      name: kubeadm
+      selection: hold
+
+  - name: Preventing kubectl from unexpected updates
+    become: true
+    ansible.builtin.dpkg_selections:
+      name: kubectl
+      selection: hold
+
+
+
+
+- name: Init master
+  hosts: master
+  tasks:
+    - name: Init master
+      become: true
+      ansible.builtin.shell: kubeadm init --apiserver-advertise-address=172.16.0.1 --cri-socket=unix:///var/run/cri-dockerd.sock --pod-network-cidr=10.244.0.0/16
+
+    - name: Creates directory to set Kubernetes priveleges
+      ansible.builtin.file:
+        path: /home/vagrant/.kube
+        state: directory
+
+    - name: Copy Kubernetes conf file with owner and permissions
+      become: true
+      ansible.builtin.shell: |
+        export KUBECONFIG=/etc/kubernetes/admin.conf
+        sudo chown vagrant:vagrant /etc/kubernetes/admin.conf
+        mkdir -p $HOME/.kube
+        sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+        sudo chown vagrant:vagrant $HOME/.kube/config
+      # ansible.builtin.copy:
+      #   src: /etc/kubernetes/admin.conf
+      #   dest: /home/vagrant/.kube/config
+      #   owner: vagrant
+      #   group: vagrant
+
+    - name: Applying network manager (changed --iface=eth1 for vagrant)
+      become: true
+      ansible.builtin.shell: kubectl apply -f /vagrant/kube-flannel.yml 
+
+    - name: Retrieve Join Command
+      become: true
+      shell: kubeadm token create --print-join-command
+      register: join_command
+
+    - name: Copy join command to local file.
+      become: yes
+      local_action: copy content="{{ join_command.stdout_lines[0] }}" dest="/tmp/kubernetes_join_command" mode=0777
+
+    - name: Seting CRI socket for join command
+      shell: |
+        echo " --cri-socket=unix:///var/run/cri-dockerd.sock" >> /tmp/kubernetes_join_command
+    
+
+- name: join_cluster
+  hosts: workers
+  become: yes
+  tasks:
+    - name: Copy join command from Ansiblehost to the worker nodes.
+      become: yes
+      copy:
+        src: /tmp/kubernetes_join_command
+        dest: /tmp/kubernetes_join_command
+        mode: 0777
+
+    - name: Join the Worker nodes to the cluster.
+      become: yes
+      command: sudo sh /tmp/kubernetes_join_command           
+

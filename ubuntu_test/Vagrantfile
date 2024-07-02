@@ -1,0 +1,54 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+DEFAULT_SH_SCRIPT = "default.sh"
+
+nodes = [
+  {
+  name: "worker1",
+  ip: "172.16.0.11",
+  netmask: "255.255.0.0",
+  memory: "2048",
+  cpus: 1,
+  shpath:"worker_ansible.sh"},
+  {
+  name: "worker2",
+  ip: "172.16.0.12",
+  netmask: "255.255.0.0",
+  memory: "2048",
+  cpus: 1,
+  shpath:"worker_ansible.sh"},
+  {
+  name: "master",
+  ip: "172.16.0.1",
+  netmask: "255.255.0.0",
+  memory: "2048",
+  cpus: 2,
+  #:nodeinnerport: ""
+  #:hostaccesport: ""
+  shpath: "master_ansible.sh"
+}
+]
+
+Vagrant.configure("2") do |config|
+
+  config.vm.box = "bento/ubuntu-20.04"
+  #url leads to local box storage, box was manualy downloaded by Opera+VPN from 
+  #https://app.vagrantup.com/bento/boxes/ubuntu-24.04 than added by
+  #vagrant box add bento/ubuntu-20.04 "some\path\file_name"
+  config.vm.box_url = "C:\Users\IZipErr\.vagrant.d\boxes"
+
+  nodes.each do |node|
+    config.vm.define node[:name] do |machine|
+      machine.vm.hostname = node[:name]
+      machine.vm.network 'private_network', ip: node[:ip], netmask: node[:netmask]
+      machine.vm.provider "virtualbox" do |vb|
+        vb.gui = false
+        vb.name = node[:name]
+				vb.memory = node[:memory]
+				vb.cpus = node[:cpus]
+      end
+    machine.vm.provision :shell, path: node[:shpath] || DEFAULT_SH_SCRIPT
+    end
+  end
+end
