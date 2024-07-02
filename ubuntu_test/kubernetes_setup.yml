@@ -222,16 +222,17 @@
     - name: Copy Kubernetes conf file with owner and permissions
       become: true
       ansible.builtin.shell: |
-        export KUBECONFIG=/etc/kubernetes/admin.conf
-        sudo chown vagrant:vagrant /etc/kubernetes/admin.conf
-        mkdir -p $HOME/.kube
+        mkdir -p $HOME/.kube 
         sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
         sudo chown vagrant:vagrant $HOME/.kube/config
-      # ansible.builtin.copy:
-      #   src: /etc/kubernetes/admin.conf
-      #   dest: /home/vagrant/.kube/config
-      #   owner: vagrant
-      #   group: vagrant
+    
+    #export KUBECONFIG=/etc/kubernetes/admin.conf 
+    #sudo chown vagrant:vagrant /etc/kubernetes/admin.conf 
+    # ansible.builtin.copy:
+    #   src: /etc/kubernetes/admin.conf
+    #   dest: /home/vagrant/.kube/config
+    #   owner: vagrant
+    #   group: vagrant
 
     - name: Applying network manager (changed --iface=eth1 for vagrant)
       become: true
