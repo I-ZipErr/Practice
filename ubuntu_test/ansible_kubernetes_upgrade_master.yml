@@ -1,0 +1,52 @@
+- name: Getting Kubernetes {{ version.key }} repository key to master plane nodes
+  become: true
+  ansible.builtin.shell: |
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/v{{ version.key }}/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg --yes
+
+- name: Adding Kubernetes {{ version.key }} repository to master plane nodes
+  become: true
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ version.key }}/deb/ /"
+    state: present
+    filename: kubernetes
+
+- name: Updating kubeadm, preventing from futher unexpected updates (apt-mark hold), upgrading control plane
+  become: true
+  ansible.builtin.shell: |
+    sudo apt-mark unhold kubeadm && \
+    sudo apt-get update && sudo apt-get install -y kubeadm={{ version.apt|quote }} && \
+    sudo apt-mark hold kubeadm
+    sudo kubeadm upgrade plan
+    sudo kubeadm upgrade apply v{{ version.apply }} --yes
+
+- name: Draining master nodes for maintance
+  ansible.builtin.shell: |
+    kubectl drain $HOSTNAME --ignore-daemonsets
+  register: drain_result
+  failed_when: drain_result.rc != 1 and drain_result.rc != 0
+
+- name: Updating kubelet & kubectl, preventing from futher unexpected updates (apt-mark hold)
+  become: true
+  ansible.builtin.shell: |
+    sudo apt-mark unhold kubelet kubectl && \
+    sudo apt-get update && sudo apt-get install -y kubelet={{ version.apt|quote }} kubectl={{ version.apt|quote }} && \
+    sudo apt-mark hold kubelet kubectl
+
+- name: Running daemon-reload and restarting kubelet
+  become: true
+  ansible.builtin.systemd_service:
+    name: kubelet
+    state: restarted
+    daemon-reload: true
+    enabled: true
+
+- name: Uncordon master nodes after maintance
+  ansible.builtin.shell: |
+    kubectl uncordon $HOSTNAME
+  failed_when: drain_result.rc != 1 and drain_result.rc != 0
+
+- name: Upgrading worker nodes  
+  ansible.builtin.include_tasks: ansible_kubernetes_upgrade_worker.yml
+  loop: "{{ groups['workers'] }}"
+  loop_control:
+    loop_var: item

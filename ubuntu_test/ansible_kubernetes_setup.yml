@@ -59,17 +59,6 @@
         net.bridge.bridge-nf-call-ip6tables = 1
         net.ipv4.ip_forward                 = 1
 
-  # - name: Allow IP forwarding
-  #   become: true
-  #   ansible.builtin.blockinfile:
-  #     path: /etc/modules-load.d/k8s.conf
-  #     append_newline: true
-  #     prepend_newline: true
-  #     block: |
-  #       net.bridge.bridge-nf-call-iptables  = 1
-  #       net.bridge.bridge-nf-call-ip6tables = 1
-  #       net.ipv4.ip_forward                 = 1
-  
   - name: Reload sytem module to apply IP forwarding changes
     ansible.builtin.command: sysctl --system
     become: true
@@ -120,10 +109,7 @@
     ansible.builtin.shell: |
       sudo curl -L https://github.com/Mirantis/cri-dockerd/releases/download/v0.3.14/cri-dockerd_0.3.14.3-0.ubuntu-jammy_amd64.deb -o /home/cri-dockerd_0.3.14.3-0.ubuntu-jammy_amd64.deb
 
-    # ansible.builtin.get_url:
-    #   url: https://github.com/Mirantis/cri-dockerd/releases/download/v0.3.14/cri-dockerd_0.3.14.3-0.ubuntu-jammy_amd64.deb
-    #   dest: /home/cri-dockerd_0.3.14.3-0.ubuntu-jammy_amd64.deb
-  
+
   - name: Install CRI-Docker package
     become: true
     ansible.builtin.apt: 
@@ -145,17 +131,6 @@
         "exec-opts": ["native.cgroupdriver=systemd"]
         }
         EOF
-
-    # marker: "{mark}"
-    # marker_begin: " "
-    # marker_end: " "
-      # path: /etc/docker/daemon.json
-      # create: true
-      # block: |
-      # {
-      #   "exec-opts": ["native.cgroupdriver=systemd"]
-      # }
-
 
   - name: Applying cgroup driver configuration
     become: true
@@ -226,13 +201,6 @@
         sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
         sudo chown vagrant:vagrant $HOME/.kube/config
     
-    #export KUBECONFIG=/etc/kubernetes/admin.conf 
-    #sudo chown vagrant:vagrant /etc/kubernetes/admin.conf 
-    # ansible.builtin.copy:
-    #   src: /etc/kubernetes/admin.conf
-    #   dest: /home/vagrant/.kube/config
-    #   owner: vagrant
-    #   group: vagrant
 
     - name: Applying network manager (changed --iface=eth1 for vagrant)
       become: true

@@ -1,0 +1,23 @@
+- name: Upgrade kubernetes cluster
+  hosts: masters
+  vars:
+    versions:
+      # - key: "1.28"
+      #   apt: "1.28.11*"
+      #   apply: "1.28.11"
+      - key: "1.29"
+        apt: "1.29.6*"
+        apply: "1.29.6"
+      - key: "1.30"
+        apt: "1.30.2*"
+        apply: "1.30.2"
+  tasks: 
+    - name: Upgrading nodes
+      ansible.builtin.include_tasks: ansible_kubernetes_upgrade_master.yml
+      loop: "{{ versions }}"
+      loop_control:
+        loop_var: version
+    
+      
+
+

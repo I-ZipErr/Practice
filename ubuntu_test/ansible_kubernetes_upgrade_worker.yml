@@ -1,0 +1,49 @@
+- name: Draining {{ item }}
+  ansible.builtin.shell: |
+    kubectl drain {{ item }} --ignore-daemonsets
+  failed_when: drain_result.rc != 1 and drain_result.rc != 0
+
+- name: Getting Kubernetes {{ version.key }} repository key to {{ item }}
+  become: true
+  delegate_to: "{{ item }}"
+  ansible.builtin.shell: |
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/v{{ version.key }}/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg --yes
+
+- name: Adding Kubernetes {{ version.key }} repository to {{ item }}
+  become: true
+  delegate_to: "{{ item }}"
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ version.key }}/deb/ /"
+    state: present
+    filename: kubernetes
+
+- name: Updating kubeadm, preventing from futher unexpected updates (apt-mark hold), upgrading node on {{ item }}
+  become: true
+  delegate_to: "{{ item }}"
+  ansible.builtin.shell: |
+    sudo apt-mark unhold kubeadm && \
+    sudo apt-get update && sudo apt-get install -y kubeadm={{ version.apt|quote }} && \
+    sudo apt-mark hold kubeadm
+    sudo kubeadm upgrade node
+
+- name: Updating kubelet & kubectl, preventing from futher unexpected updates (apt-mark hold) on {{ item }}
+  become: true
+  delegate_to: "{{ item }}"
+  ansible.builtin.shell: |
+    sudo apt-mark unhold kubelet kubectl && \
+    sudo apt-get update && sudo apt-get install -y kubelet={{ version.apt|quote }} kubectl={{ version.apt|quote }} && \
+    sudo apt-mark hold kubelet kubectl
+
+- name: Running daemon-reload and restarting kubelet on {{ item }}
+  become: true
+  delegate_to: "{{ item }}"
+  ansible.builtin.systemd_service:
+    name: kubelet
+    state: restarted
+    daemon-reload: true
+    enabled: true
+
+- name: Uncordon {{ item }} after maintance
+  ansible.builtin.shell: |
+      kubectl uncordon {{ item }}
+  failed_when: drain_result.rc != 1 and drain_result.rc != 0
