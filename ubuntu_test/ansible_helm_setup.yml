@@ -1,0 +1,27 @@
+- name: Setup helm on master node
+  hosts: master
+  tasks:
+    - name: Downloading apt-transport-https
+      become: true
+      ansible.builtin.apt:
+        update_cache: true
+        name: apt-transport-https
+
+    - name: Downloadig keyring for helm
+      become: true
+      ansible.builtin.apt_key:
+        url: https://baltocdn.com/helm/signing.asc
+        keyring: /usr/share/keyrings/helm.gpg
+
+    - name: Adding helm repository (architecture amd64)
+      become: true
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main"
+        filename: helm-stable-debian
+
+    - name: Downloading helm
+      become: true
+      ansible.builtin.apt:
+        update_cache: true
+        name: helm  
+ 

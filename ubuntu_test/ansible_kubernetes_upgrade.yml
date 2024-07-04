@@ -2,9 +2,9 @@
   hosts: masters
   vars:
     versions:
-      # - key: "1.28"
-      #   apt: "1.28.11*"
-      #   apply: "1.28.11"
+      - key: "1.28"
+        apt: "1.28.11*"
+        apply: "1.28.11"
       - key: "1.29"
         apt: "1.29.6*"
         apply: "1.29.6"
